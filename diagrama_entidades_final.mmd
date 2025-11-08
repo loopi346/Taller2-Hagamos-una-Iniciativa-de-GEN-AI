@@ -1,0 +1,60 @@
+erDiagram
+    CLIENTE ||--o{ SOLICITUD_VINCULACION : "realiza"
+    SOLICITUD_VINCULACION ||--|| VALIDACION_FORMULARIO : "validada_por"
+    VALIDACION_FORMULARIO ||--o{ HALLAZGO : "contiene"
+    VALIDACION_FORMULARIO ||--o{ SOLICITUD_SOPORTE : "genera"
+
+    CLIENTE {
+        uuid id PK "Identificador único del cliente"
+        varchar tipo_identificacion "CC, CE, NIT, Pasaporte"
+        varchar numero_identificacion UK "Único por tipo"
+        varchar nombre_completo
+        varchar actividad_economica
+        decimal ingresos_mensuales "COP"
+        boolean maneja_moneda_extranjera
+        boolean es_pep "Persona Expuesta Políticamente"
+        timestamp created_at
+    }
+
+    SOLICITUD_VINCULACION {
+        uuid id PK
+        uuid cliente_id FK
+        timestamp fecha_solicitud
+        enum estado "PENDIENTE_VALIDACION, PENDIENTE_SOPORTES, EN_PROCESO, APROBADA, RECHAZADA"
+        varchar canal_ingreso "WEB, APP_MOBILE"
+        jsonb archivos_adjuntos "RUT, cédula, extractos"
+    }
+
+    VALIDACION_FORMULARIO {
+        uuid id PK
+        uuid solicitud_id FK
+        enum estado_validacion "ContinuarFlujoTradicional, SolicitarInformacionAdicional"
+        enum nivel_riesgo_calculado "Bajo, Medio, Alto, Muy_Alto"
+        integer porcentaje_completitud "0-100"
+        timestamp fecha_validacion
+        integer tiempo_procesamiento_ms
+        varchar modelo_llm_usado "gpt-4, claude-3"
+        integer tokens_consumidos
+    }
+
+    HALLAZGO {
+        uuid id PK
+        uuid validacion_id FK
+        enum agente_origen "ValidadorCompletitud, AnalizadorCoherencia, EvaluadorRiesgo"
+        enum tipo_hallazgo "CampoFaltante, Incoherencia, AlertaRiesgo"
+        varchar codigo_hallazgo "H-PN-01, H-PJ-03"
+        text descripcion "Detalle del hallazgo"
+        enum severidad "Bloqueante, Alta, Media, Informativa"
+        timestamp created_at
+    }
+
+    SOLICITUD_SOPORTE {
+        uuid id PK
+        uuid validacion_id FK
+        enum tipo_soporte "Documento, Aclaracion"
+        text descripcion_requerida "Carta aclaratoria, extractos bancarios"
+        enum estado_soporte "Pendiente, Recibido, Validado"
+        timestamp fecha_solicitud
+        timestamp fecha_recepcion
+        jsonb archivo_recibido "path S3, metadata"
+    }

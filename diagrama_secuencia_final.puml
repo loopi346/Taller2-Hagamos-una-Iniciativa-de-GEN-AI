@@ -1,0 +1,106 @@
+@startuml
+' Diagrama de secuencia: Validación y Análisis Preventivo para Onboarding
+' Profesional — incluye participantes, activaciones, notas y decisión consolidada
+
+skinparam sequenceGroupTitleBackgroundColor #F2F4F8
+skinparam sequenceParticipantBackgroundColor #FFFFFF
+skinparam sequenceLifeLineBorderColor #9099A2
+skinparam sequenceLifeLineBackgroundColor #F8F9FB
+skinparam noteBackgroundColor #FFF8DC
+skinparam noteBorderColor #B0B0B0
+skinparam ArrowColor #2B6CB0
+skinparam ActorBorderColor #2B6CB0
+
+actor "Usuario\n(Cliente potencial)" as Usuario
+participant "Frontend React\n(Formulario & carga archivos)" as Frontend
+participant "Backend API\n(Node.js) / Orquestador" as Backend
+participant "Agente 1:\nValidador de Completitud" as Agente1
+participant "Agente 2:\nAnalizador de Coherencia\n(LLM + OCR)" as Agente2
+participant "Agente 3:\nEvaluador de Riesgo\nPreliminar" as Agente3
+database "PostgreSQL\n(Validaciones y hallazgos)" as PostgreSQL
+
+title Flujo de validación inmediata para onboarding
+
+== Envío de solicitud desde cliente ==
+Usuario -> Frontend : Completa formulario\nadjunta: RUT, estados bancarios, cédula
+activate Frontend
+
+Frontend -> Backend : POST /api/validar-solicitud\n(formulario + archivos)
+deactivate Frontend
+activate Backend
+
+note right of Backend
+  Inicio de orquestación:
+  - Ejecuta Agente 1 → Agente 2 → Agente 3 (secuencialmente)
+  - Consolida resultados y decide acción inmediata
+end note
+
+== Agente 1: Completitud ==
+Backend -> Agente1 : requestValidacionCompletitud(formulario)
+activate Agente1
+Agente1 --> Backend : respuestaCompletitud\n(camposFaltantes : [campo1, campo2] || [] )
+deactivate Agente1
+
+== Agente 2: Coherencia (OCR + LLM) ==
+Backend -> Agente2 : requestAnalisisCoherencia(archivos, formulario)
+activate Agente2
+
+note right of Agente2
+  Prompt LLM (resumen):
+  - Extrae texto con OCR de documentos (RUT, estados, cédula).
+  - Compara: nombres, NIT/ID, domicilios, ingresos, fechas, números de cuenta.
+  - Devuelve: coincidencias, discrepancias con evidencias (página, línea).
+  - Instrucción: "Priorizar discrepancias que afecten KYC/PEP/prevención."
+end note
+
+Agente2 --> Backend : respuestaCoherencia\n(coincidencias, incoherencias: [{campo, evidencia}], confidence)
+deactivate Agente2
+
+== Agente 3: Evaluación de riesgo preliminar ==
+Backend -> Agente3 : requestEvaluacionRiesgo(formulario, documentos, hallazgosPrevios)
+activate Agente3
+Agente3 --> Backend : alertaRiesgo\n(PEP: true/false, riesgoAlto: true/false, razones)
+deactivate Agente3
+
+== Consolidación y decisión ==
+activate Backend
+Backend -> Backend : consolidarResultados(\n  completitud,\n  coherencia,\n  riesgo\n)
+note left of Backend
+  Regla de decisión (ejemplo):
+  - Si camposFaltantes || incoherenciasSignificativas -> SolicitarInformacionAdicional
+  - Si riesgoAlto -> Marcar para revisión manual urgente
+  - Si todo OK -> ContinuarFlujoTradicional
+end note
+
+alt Hay campos faltantes o incoherencias
+  Backend -> Backend : generarListaSoportesEspecificos()
+  Backend --> PostgreSQL : guardarValidacion(\n  estado: "SolicitarInformacionAdicional",\n  detalles: {camposFaltantes, incoherencias, alertasRiesgo}\n)
+  activate PostgreSQL
+  PostgreSQL --> Backend : confirmaciónGuardado (idValidacion)
+  deactivate PostgreSQL
+
+  Backend --> Frontend : { decision: "SolicitarInformacionAdicional",\n    soportesRequeridos: [lista detallada],\n    tiempoEstimado: "inmediato" }
+else Todo correcto / bajo riesgo
+  Backend --> PostgreSQL : guardarValidacion(\n  estado: "ContinuarFlujoTradicional",\n  detalles: {resumenValidacion, scoreRiesgo}\n)
+  activate PostgreSQL
+  PostgreSQL --> Backend : confirmaciónGuardado (idValidacion)
+  deactivate PostgreSQL
+
+  Backend --> Frontend : { decision: "ContinuarFlujoTradicional",\n    mensaje: "Validación exitosa — puede continuar con analista humano" }
+end
+
+deactivate Backend
+
+== Respuesta al cliente ==
+activate Frontend
+Frontend -> Usuario : Mostrar resultado inmediato (≈ 5s)\n- Estado de validación\n- Lista de documentos/clarificaciones (si aplica)\n- Mensaje de éxito para continuar (si aplica)
+deactivate Frontend
+
+note bottom
+  Notas:
+  - El tiempo objetivo de respuesta en la interfaz: **~5 segundos** (dependiendo de tamaño de OCR).
+  - Todos los hallazgos quedan guardados en PostgreSQL con idValidacion para auditoría y trazabilidad.
+  - El Agente 2 debe registrar evidencias (página, snippet OCR) para soporte en comité.
+end note
+
+@enduml
